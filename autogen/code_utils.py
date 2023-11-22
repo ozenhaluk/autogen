@@ -85,6 +85,10 @@ def infer_lang(code):
     """
     if code.startswith("python ") or code.startswith("pip") or code.startswith("python3 "):
         return "sh"
+    if code.startswith("html"):
+        return "html"
+    if code.startswith("javascript") or code.startswith("node"):
+        return "javascript"
 
     # check if code is a valid python code
     try:
@@ -221,6 +225,11 @@ def _cmd(lang):
         return "sh"
     if lang in ["ps1"]:
         return "powershell"
+    if lang in ["javascript", "js"]:
+        return "node"
+    if lang in ["html"]:
+        return "chrome"
+    
     raise NotImplementedError(f"{lang} not recognized in code execution")
 
 
@@ -291,8 +300,8 @@ def execute_code(
         lang = "ps1"
     if filename is None:
         code_hash = md5(code.encode()).hexdigest()
-        # create a file with a automatically generated name
-        filename = f"tmp_code_{code_hash}.{'py' if lang.startswith('python') else lang}"
+        # create a file (py ) with a automatically generated name
+        filename = f"tmp_code_{code_hash}.{'py' if lang.startswith('python') else 'js' if lang == 'javascript' else 'ts' if lang == 'typescript' else lang}"
     if work_dir is None:
         work_dir = WORKING_DIR
     filepath = os.path.join(work_dir, filename)
@@ -306,7 +315,7 @@ def execute_code(
     if not use_docker or in_docker_container:
         # already running in a docker container
         cmd = [
-            sys.executable if lang.startswith("python") else _cmd(lang),
+            sys.executable if lang.startswith("python") else 'node' if lang in ['javascript', 'typescript'] else _cmd(lang),
             f".\\{filename}" if WIN32 else filename,
         ]
         if WIN32:
@@ -469,6 +478,7 @@ def eval_function_completions(
     assertions: Optional[Union[str, Callable[[str], Tuple[str, float]]]] = None,
     timeout: Optional[float] = 3,
     use_docker: Optional[bool] = True,
+    lang : Optional[str] = "python",
 ) -> Dict:
     """(openai<1) Select a response from a list of responses for the function completion task (using generated assertions), and/or evaluate if the task is successful using a gold test.
 
@@ -489,14 +499,23 @@ def eval_function_completions(
         # no assertion filter
         success_list = []
         for i in range(n):
-            response = _remove_check(responses[i])
-            code = (
-                f"{response}\n{test}\ncheck({entry_point})"
-                if response.startswith("def")
-                else f"{definition}{response}\n{test}\ncheck({entry_point})"
-            )
-            success = execute_code(code, timeout=timeout, use_docker=use_docker)[0] == 0
-            success_list.append(success)
+            if lang == 'python':
+                response = _remove_check(responses[i])
+                code = (
+                    f"{response}\n{test}\ncheck({entry_point})"
+                    if response.startswith("def")
+                    else f"{definition}{response}\n{test}\ncheck({entry_point})"
+                )
+                success = execute_code(code, timeout=timeout, use_docker=use_docker)[0] == 0
+                success_list.append(success)
+            elif lang in ['javascript', 'typescript']:
+                code = (
+                    f"{response}\n{test}\ncheck({entry_point})"
+                    if response.startswith("function")
+                    else f"{definition}{response}\n{test}\ncheck({entry_point})"
+                )
+                success = execute_code(code, timeout=timeout, use_docker=use_docker)[0] == 0
+                success_list.append(success)
         return {
             "expected_success": 1 - pow(1 - sum(success_list) / n, n),
             "success": any(s for s in success_list),
@@ -542,15 +561,47 @@ def eval_function_completions(
     }
 
 
-_FUNC_COMPLETION_PROMPT = "# Python 3{definition}"
-_FUNC_COMPLETION_STOP = ["\nclass", "\ndef", "\nif", "\nprint"]
-_IMPLEMENT_CONFIGS = [
-    {"model": FAST_MODEL, "prompt": _FUNC_COMPLETION_PROMPT, "temperature": 0, "cache_seed": 0},
-    {"model": FAST_MODEL, "prompt": _FUNC_COMPLETION_PROMPT, "stop": _FUNC_COMPLETION_STOP, "n": 7, "cache_seed": 0},
-    {"model": DEFAULT_MODEL, "prompt": _FUNC_COMPLETION_PROMPT, "temperature": 0, "cache_seed": 1},
-    {"model": DEFAULT_MODEL, "prompt": _FUNC_COMPLETION_PROMPT, "stop": _FUNC_COMPLETION_STOP, "n": 2, "cache_seed": 2},
-    {"model": DEFAULT_MODEL, "prompt": _FUNC_COMPLETION_PROMPT, "stop": _FUNC_COMPLETION_STOP, "n": 1, "cache_seed": 2},
-]
+# Constants for Python
+_PYTHON_COMPLETION_PROMPT = "# Python 3{definition}"
+_PYTHON_COMPLETION_STOP = ["\nclass", "\ndef", "\nif", "\nprint"]
+
+# Constants for JavaScript
+_JS_COMPLETION_PROMPT = "// JavaScript{definition}"
+_JS_COMPLETION_STOP = ["\nfunction", "\nif", "\nconsole.log"]
+
+# Constants for TypeScript
+_TS_COMPLETION_PROMPT = "// TypeScript{definition}"
+_TS_COMPLETION_STOP = ["\nfunction", "\nif", "\nconsole.log"]
+
+# get function completion configurations for a given language
+def get_function_comppletion_conf(lang):
+    if lang == 'python':
+        prompt = _PYTHON_COMPLETION_PROMPT
+        stop = _PYTHON_COMPLETION_STOP
+        cache_seed = 0
+    elif lang == 'javascript' or lang == 'js':
+        prompt = _JS_COMPLETION_PROMPT
+        stop = _JS_COMPLETION_STOP
+        cache_seed = 3
+    elif lang == 'typescript' or lang == 'ts':
+        prompt = _TS_COMPLETION_PROMPT
+        stop = _TS_COMPLETION_STOP
+        cache_seed = 6
+    else:
+        raise ValueError(f"Unsupported language: {lang}")
+
+    return [
+        {"model": FAST_MODEL, "prompt": prompt, "temperature": 0, "cache_seed": cache_seed},
+        {"model": FAST_MODEL, "prompt": prompt, "stop": stop, "n": 7, "cache_seed": cache_seed},
+        {"model": DEFAULT_MODEL, "prompt": prompt, "temperature": 0, "cache_seed": cache_seed+1},
+        {"model": DEFAULT_MODEL, "prompt": prompt, "stop": stop, "n": 2, "cache_seed": cache_seed+2},
+        {"model": DEFAULT_MODEL, "prompt": prompt, "stop": stop, "n": 1, "cache_seed": cache_seed+2},
+    ]
+
+# concatenate arrays of configurations for different languages
+_IMPLEMENT_CONFIGS = get_function_comppletion_conf('python')
+_IMPLEMENT_CONFIGS += get_function_comppletion_conf('javascript')
+_IMPLEMENT_CONFIGS += get_function_comppletion_conf('typescript')
 
 
 class PassAssertionFilter:
