@@ -98,10 +98,6 @@ def infer_lang(code):
     """
     if code.startswith("python ") or code.startswith("pip") or code.startswith("python3 ") or code.startswith("node"):
         return "sh"
-    if code.startswith("html"):
-        return "html"
-    if code.startswith("javascript") or code.startswith("node"):
-        return "javascript"
 
     # check if code is a valid python code
     try:

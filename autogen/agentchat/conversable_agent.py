@@ -1106,6 +1106,7 @@ class ConversableAgent(Agent):
         """
         return execute_code(code, **kwargs)
 
+
     def execute_code_blocks(self, code_blocks):
         """Execute the code blocks and return the result."""
         logs_all = ""
@@ -1127,39 +1128,6 @@ class ConversableAgent(Agent):
                     code,
                     lang=lang.lower(),
                     filename=extract_filename(code, lang.lower()),
-                    **self._code_execution_config,
-                )
-            elif lang.lower() in ["javascript", "js"]:
-                if code.startswith("# filename: "):
-                    filename = code[11 : code.find("\n")].strip()
-                else:
-                    filename = None
-                exitcode, logs, image = self.run_code(
-                    code,
-                    lang="javascript",
-                    filename=filename,
-                    **self._code_execution_config,
-                )
-            elif lang.lower() in ["typescript", "ts"]:
-                if code.startswith("# filename: "):
-                    filename = code[11 : code.find("\n")].strip()
-                else:
-                    filename = None
-                exitcode, logs, image = self.run_code(
-                    code,
-                    lang="typescript",
-                    filename=filename,
-                    **self._code_execution_config,
-                )
-            elif lang.lower() in ["html"]:
-                if code.startswith("# filename: "):
-                    filename = code[11 : code.find("\n")].strip()
-                else:
-                    filename = None
-                exitcode, logs, image = self.run_code(
-                    code,
-                    lang="html",
-                    filename=filename,
                     **self._code_execution_config,
                 )
             else:
