@@ -34,6 +34,19 @@ TIMEOUT_MSG = "Timeout"
 DEFAULT_TIMEOUT = 600
 WIN32 = sys.platform == "win32"
 PATH_SEPARATOR = WIN32 and "\\" or "/"
+DEFAULT_LANG_CONFIG = {
+        "python": {"comment_template": "# filename:{filename}", "action": "execute", "extension" : "py" , "cmd" : sys.executable},
+        "javascript": {"comment_template": "// filename:{filename}", "action": "execute", "extension" : "js" , "cmd" : "node"},
+        "java": {"comment_template": "// filename:{filename}", "action": "execute", "extension" : "java" , "cmd" : "%JAVA_HOME%/bin/java%"},
+        "typescript": {"comment_template": "// filename:{filename}", "action": "execute", "extension" : "ts" , "cmd" : "node"},
+        "html": {"comment_template": "<!-- filename:{filename} -->", "action": "save", "extension" : "html" },
+        "css": {"comment_template": "/* filename:{filename}", "action": "save", "extension" : "css"},
+        "sh": {"comment_template": "# filename:{filename}", "action": "execute", "extension" : "sh" , "cmd" : "sh"},
+        "shell": {"comment_template": "# filename:{filename}", "action": "execute", "extension" : "sh" , "cmd" : "sh"},
+        "bash": {"comment_template": "# filename:{filename}", "action": "execute", "extension" : "sh" , "cmd" : "sh"},
+        "ps1": {"comment_template": "# filename:{filename}", "action": "execute", "extension" : "ps1" , "cmd" : "powershell"},
+        # add more languages here if needed
+    }
 
 logger = logging.getLogger(__name__)
 
@@ -83,12 +96,8 @@ def infer_lang(code):
     """infer the language for the code.
     TODO: make it robust.
     """
-    if code.startswith("python ") or code.startswith("pip") or code.startswith("python3 "):
+    if code.startswith("python ") or code.startswith("pip") or code.startswith("python3 ") or code.startswith("node"):
         return "sh"
-    if code.startswith("html"):
-        return "html"
-    if code.startswith("javascript") or code.startswith("node"):
-        return "javascript"
 
     # check if code is a valid python code
     try:
@@ -98,6 +107,8 @@ def infer_lang(code):
         # not a valid python code
         return UNKNOWN
 
+def test_code(code, lang):
+    ' Sure! Here\'s an example of a simple website using Node.js, HTML, and CSS to collect feedback from consumers via forms:\n```html\n<!DOCTYPE html>\n<html>\n<head>\n  <title>Feedback Form</title>\n  <style>\n    body {\n      font-family: Arial, sans-serif;\n    }\n    form {\n      width: 300px;\n      margin: 0 auto;\n    }\n    label {\n      display: block;\n      margin-bottom: 10px;\n    }\n    input[type="text"], textarea {\n      width: 100%;\n      padding: 5px;\n      margin-bottom: 10px;\n    }\n    button {\n      background-color: blue;\n      color: white;\n      border: none;\n      padding: 10px;\n      cursor: pointer;\n    }\n    button:hover {\n      background-color: lightblue;\n  }\n</style>\n</head>\n<body>\n  <h1>Feedback Form</h1>\n  <form id="feedbackForm">\n    <label for="name">Name:</label>\n    <input type="text" id="name" name="name"><br><br>\n    <label for="email">Email:</label>\n    <input type="email" id="email" name="email"><br>\n    <label for="feedback">Feedback:</label>\n    <textarea id="feedback" name="feedback"></textarea><br>\n    <button type="submit">Submit</button>\n  </form>\n  <script src="/path/to/your/node-server.js"></script>\n</body>\n</html>\n```'
 
 # TODO: In the future move, to better support https://spec.commonmark.org/0.30/#fenced-code-blocks
 #       perhaps by using a full Markdown parser.
@@ -139,6 +150,14 @@ def extract_code(
 
     return extracted
 
+def extract_filename(code,lang):
+    filename = None
+    config = DEFAULT_LANG_CONFIG[lang.lower()]
+    pattern = config["comment_template"].format(filename="(.*)")
+    match = re.match(pattern, code)
+    if match:
+        filename = match.group(1).strip()
+    return filename
 
 def generate_code(pattern: str = CODE_BLOCK_PATTERN, **config) -> Tuple[str, float]:
     """(openai<1) Generate code.
@@ -219,17 +238,8 @@ def timeout_handler(signum, frame):
 
 
 def _cmd(lang):
-    if lang.startswith("python") or lang in ["bash", "sh", "powershell"]:
-        return lang
-    if lang in ["shell"]:
-        return "sh"
-    if lang in ["ps1"]:
-        return "powershell"
-    if lang in ["javascript", "js"]:
-        return "node"
-    if lang in ["html"]:
-        return "chrome"
-    
+    if DEFAULT_LANG_CONFIG[lang]["action"] == "execute":
+        return DEFAULT_LANG_CONFIG[lang]["cmd"]
     raise NotImplementedError(f"{lang} not recognized in code execution")
 
 
@@ -298,10 +308,10 @@ def execute_code(
     original_filename = filename
     if WIN32 and lang in ["sh", "shell"] and (not use_docker):
         lang = "ps1"
-    if filename is None:
+    if DEFAULT_LANG_CONFIG[lang] and filename is None:
         code_hash = md5(code.encode()).hexdigest()
         # create a file (py ) with a automatically generated name
-        filename = f"tmp_code_{code_hash}.{'py' if lang.startswith('python') else 'js' if lang == 'javascript' else 'ts' if lang == 'typescript' else lang}"
+        filename = f"tmp_code_{code_hash}.{DEFAULT_LANG_CONFIG[lang]['extension']}"
     if work_dir is None:
         work_dir = WORKING_DIR
     filepath = os.path.join(work_dir, filename)
@@ -312,37 +322,43 @@ def execute_code(
             fout.write(code)
     # check if already running in a docker container
     in_docker_container = os.path.exists("/.dockerenv")
+    # already running in a docker container
     if not use_docker or in_docker_container:
-        # already running in a docker container
-        cmd = [
-            sys.executable if lang.startswith("python") else 'node' if lang in ['javascript', 'typescript'] else _cmd(lang),
-            f".\\{filename}" if WIN32 else filename,
-        ]
-        if WIN32:
-            logger.warning("SIGALRM is not supported on Windows. No timeout will be enforced.")
-            result = subprocess.run(
-                cmd,
-                cwd=work_dir,
-                capture_output=True,
-                text=True,
-            )
-        else:
-            with ThreadPoolExecutor(max_workers=1) as executor:
-                future = executor.submit(
-                    subprocess.run,
+        # only for executable code types (python, sh, shell, ps1, java, javascript, typescript)
+        if DEFAULT_LANG_CONFIG[lang]["action"] == "execute":
+            cmd = [
+                DEFAULT_LANG_CONFIG[lang]["cmd"],
+                f".\\{filename}" if WIN32 else filename,
+            ]
+            if WIN32:
+                logger.warning("SIGALRM is not supported on Windows. No timeout will be enforced.")
+                result = subprocess.run(
                     cmd,
                     cwd=work_dir,
                     capture_output=True,
                     text=True,
                 )
-                try:
-                    result = future.result(timeout=timeout)
-                except TimeoutError:
-                    if original_filename is None:
-                        os.remove(filepath)
-                    return 1, TIMEOUT_MSG, None
-        if original_filename is None:
-            os.remove(filepath)
+            else:
+                with ThreadPoolExecutor(max_workers=1) as executor:
+                    future = executor.submit(
+                        subprocess.run,
+                        cmd,
+                        cwd=work_dir,
+                        capture_output=True,
+                        text=True,
+                    )
+                    try:
+                        result = future.result(timeout=timeout)
+                    except TimeoutError:
+                        if original_filename is None:
+                            os.remove(filepath)
+                        return 1, TIMEOUT_MSG, None
+        else:
+            # we simulate successful execution for save code types (html, css)
+            # dictionary
+            result = subprocess.CompletedProcess(args=['command', 'arg1', 'arg2'], returncode=0, stdout=f'', stderr=f'')
+        # if original_filename is None:
+        #     os.remove(filepath)
         if result.returncode:
             logs = result.stderr
             if original_filename is None:
