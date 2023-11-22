@@ -7,10 +7,12 @@ from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, Type, Un
 from autogen import OpenAIWrapper
 from .agent import Agent
 from autogen.code_utils import (
+    DEFAULT_LANG_CONFIG,
     DEFAULT_MODEL,
     UNKNOWN,
     execute_code,
     extract_code,
+    extract_filename,
     infer_lang,
 )
 
@@ -40,10 +42,14 @@ class ConversableAgent(Agent):
     To customize the initial message when a conversation starts, override `generate_init_message` method.
     """
 
+    
     DEFAULT_CONFIG = {
         "model": DEFAULT_MODEL,
     }
     MAX_CONSECUTIVE_AUTO_REPLY = 100  # maximum number of consecutive auto replies (subject to future change)
+
+    
+    
 
     llm_config: Union[Dict, Literal[False]]
 
@@ -1023,6 +1029,7 @@ class ConversableAgent(Agent):
         """
         return execute_code(code, **kwargs)
 
+
     def execute_code_blocks(self, code_blocks):
         """Execute the code blocks and return the result."""
         logs_all = ""
@@ -1039,48 +1046,11 @@ class ConversableAgent(Agent):
             )
             if lang in ["bash", "shell", "sh"]:
                 exitcode, logs, image = self.run_code(code, lang=lang, **self._code_execution_config)
-            elif lang in ["python", "Python"]:
-                if code.startswith("# filename: "):
-                    filename = code[11 : code.find("\n")].strip()
-                else:
-                    filename = None
+            elif lang.lower() in DEFAULT_LANG_CONFIG:
                 exitcode, logs, image = self.run_code(
                     code,
-                    lang="python",
-                    filename=filename,
-                    **self._code_execution_config,
-                )
-            elif lang.lower() in ["javascript", "js"]:
-                if code.startswith("# filename: "):
-                    filename = code[11 : code.find("\n")].strip()
-                else:
-                    filename = None
-                exitcode, logs, image = self.run_code(
-                    code,
-                    lang="javascript",
-                    filename=filename,
-                    **self._code_execution_config,
-                )
-            elif lang.lower() in ["typescript", "ts"]:
-                if code.startswith("# filename: "):
-                    filename = code[11 : code.find("\n")].strip()
-                else:
-                    filename = None
-                exitcode, logs, image = self.run_code(
-                    code,
-                    lang="typescript",
-                    filename=filename,
-                    **self._code_execution_config,
-                )
-            elif lang.lower() in ["html"]:
-                if code.startswith("# filename: "):
-                    filename = code[11 : code.find("\n")].strip()
-                else:
-                    filename = None
-                exitcode, logs, image = self.run_code(
-                    code,
-                    lang="html",
-                    filename=filename,
+                    lang=lang.lower(),
+                    filename=extract_filename(code, lang.lower()),
                     **self._code_execution_config,
                 )
             else:
