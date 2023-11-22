@@ -1050,6 +1050,39 @@ class ConversableAgent(Agent):
                     filename=filename,
                     **self._code_execution_config,
                 )
+            elif lang.lower() in ["javascript", "js"]:
+                if code.startswith("# filename: "):
+                    filename = code[11 : code.find("\n")].strip()
+                else:
+                    filename = None
+                exitcode, logs, image = self.run_code(
+                    code,
+                    lang="javascript",
+                    filename=filename,
+                    **self._code_execution_config,
+                )
+            elif lang.lower() in ["typescript", "ts"]:
+                if code.startswith("# filename: "):
+                    filename = code[11 : code.find("\n")].strip()
+                else:
+                    filename = None
+                exitcode, logs, image = self.run_code(
+                    code,
+                    lang="typescript",
+                    filename=filename,
+                    **self._code_execution_config,
+                )
+            elif lang.lower() in ["html"]:
+                if code.startswith("# filename: "):
+                    filename = code[11 : code.find("\n")].strip()
+                else:
+                    filename = None
+                exitcode, logs, image = self.run_code(
+                    code,
+                    lang="html",
+                    filename=filename,
+                    **self._code_execution_config,
+                )
             else:
                 # In case the language is not supported, we return an error message.
                 exitcode, logs, image = (
