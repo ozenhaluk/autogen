@@ -1106,7 +1106,6 @@ class ConversableAgent(Agent):
         """
         return execute_code(code, **kwargs)
 
-
     def execute_code_blocks(self, code_blocks):
         """Execute the code blocks and return the result."""
         logs_all = ""

@@ -12,6 +12,8 @@ from flaml.automl.logger import logger_formatter
 from autogen.oai.openai_utils import get_key, oai_price1k
 from autogen.token_count_utils import count_token
 
+
+
 TOOL_ENABLED = False
 try:
     import openai
@@ -462,39 +464,9 @@ class OpenAIWrapper:
         choices = response.choices
         if isinstance(response, Completion):
             return [choice.text for choice in choices]
-
-        if TOOL_ENABLED:
-            return [
-                choice.message
-                if choice.message.function_call is not None or choice.message.tool_calls is not None
-                else choice.message.content
-                for choice in choices
-            ]
-        else:
-            return [
-                choice.message if choice.message.function_call is not None else choice.message.content
-                for choice in choices
-            ]
-    
-    # a workaround function for solving non-gpt model's to be compatible with function calls
-    @classmethod
-    def extract_function_calls_for_local_llm(cls, response: ChatCompletion | Completion) -> List[str]:
-        choices = response.choices
-        for choice in choices:
-            if isinstance(response, Completion):
-                if choice.text is not None:
-                    if 'function_call' in choice.text:
-                        function_call_str = re.search(r'(?:```(?:json)?\s*\n)?({\s*"function_call":\s*[^`]*})(?:```)?', choice.text).group(1)
-                        function_calls = json.loads(function_call_str)
-                        if (function_calls['function_call'] is not None):
-                            choice.message.function_call = function_calls['function_call']
-            if choice.message.content is not None:
-                if 'function_call' in choice.message.content:
-                    function_call_str = re.search(r'(?:```(?:json)?\s*\n)?({\s*"function_call":\s*[^`]*})(?:```)?', choice.message.content).group(1)
-                    function_calls = json.loads(function_call_str)
-                    if (function_calls['function_call'] is not None):
-                        choice.message.function_call = function_calls['function_call']
-        return response
+        return [
+            choice.message if choice.message.function_call is not None else choice.message.content for choice in choices
+        ]
 
 
 # TODO: logging
