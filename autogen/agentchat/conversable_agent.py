@@ -16,6 +16,8 @@ from autogen.code_utils import (
     infer_lang,
 )
 
+local_llm=True
+
 try:
     from termcolor import colored
 except ImportError:
@@ -631,6 +633,8 @@ class ConversableAgent(Agent):
         response = client.create(
             context=messages[-1].pop("context", None), messages=self._oai_system_message + messages
         )
+        if local_llm:
+            response = client.extract_function_calls_for_local_llm(response)
         return True, client.extract_text_or_function_call(response)[0]
 
     def generate_code_execution_reply(
@@ -681,7 +685,7 @@ class ConversableAgent(Agent):
         code_execution_config["last_n_messages"] = last_n_messages
 
         return False, None
-
+    
     def generate_function_call_reply(
         self,
         messages: Optional[List[Dict]] = None,
@@ -1029,7 +1033,6 @@ class ConversableAgent(Agent):
         """
         return execute_code(code, **kwargs)
 
-
     def execute_code_blocks(self, code_blocks):
         """Execute the code blocks and return the result."""
         logs_all = ""
@@ -1116,13 +1119,17 @@ class ConversableAgent(Agent):
 
         is_exec_success = False
         if func is not None:
-            # Extract arguments from a json-like string and put it into a dict.
-            input_string = self._format_json_str(func_call.get("arguments", "{}"))
-            try:
-                arguments = json.loads(input_string)
-            except json.JSONDecodeError as e:
-                arguments = None
-                content = f"Error: {e}\n You argument should follow json format."
+            if local_llm:
+                # for local_llm, we don't need to parse the arguments hence we already did it
+                arguments = func_call.get("arguments", {})
+            else:
+                # Extract arguments from a json-like string and put it into a dict.
+                input_string = self._format_json_str(func_call.get("arguments", "{}"))
+                try:
+                    arguments = json.loads(input_string)
+                except json.JSONDecodeError as e:
+                    arguments = None
+                    content = f"Error: {e}\n You argument should follow json format."
 
             # Try to execute the function
             if arguments is not None:
@@ -1140,7 +1147,7 @@ class ConversableAgent(Agent):
 
         return is_exec_success, {
             "name": func_name,
-            "role": "function",
+            "role": 'assistant' if local_llm else "function",
             "content": str(content),
         }
 
@@ -1162,13 +1169,17 @@ class ConversableAgent(Agent):
 
         is_exec_success = False
         if func is not None:
-            # Extract arguments from a json-like string and put it into a dict.
-            input_string = self._format_json_str(func_call.get("arguments", "{}"))
-            try:
-                arguments = json.loads(input_string)
-            except json.JSONDecodeError as e:
-                arguments = None
-                content = f"Error: {e}\n You argument should follow json format."
+            if  local_llm:
+                # for local_llm, we don't need to parse the arguments hence we already did it
+                arguments = func_call.get("arguments", {})
+            else:  
+                # Extract arguments from a json-like string and put it into a dict.
+                input_string = self._format_json_str(func_call.get("arguments", "{}"))
+                try:
+                    arguments = json.loads(input_string)
+                except json.JSONDecodeError as e:
+                    arguments = None
+                    content = f"Error: {e}\n You argument should follow json format."
 
             # Try to execute the function
             if arguments is not None:
@@ -1190,7 +1201,7 @@ class ConversableAgent(Agent):
 
         return is_exec_success, {
             "name": func_name,
-            "role": "function",
+            "role": 'assistant' if local_llm else "function",
             "content": str(content),
         }
 
