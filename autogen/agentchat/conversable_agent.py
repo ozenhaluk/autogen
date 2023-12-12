@@ -632,7 +632,9 @@ class ConversableAgent(Agent):
             return False, None
         if messages is None:
             messages = self._oai_messages[sender]
-
+        if local_llm:
+            messages = self.make_lmstudio_compatible(messages)
+        
         # TODO: #1143 handle token limit exceeded error
         response = client.create(
             context=messages[-1].pop("context", None), messages=self._oai_system_message + messages

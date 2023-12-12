@@ -68,3 +68,24 @@ class Agent:
         Returns:
             str or dict or None: the generated reply. If None, no reply is generated.
         """
+
+     # LM Studio compatibility functions
+    def clean_message(self,message: Dict) -> Dict:
+        if message["role"] == "function":
+            message["role"] = "assistant"
+        return message
+
+
+    def filter_incompatible_message(self,message: Dict) -> bool:
+        if message["role"] not in ["user", "assistant", "system"]:
+            return False
+        if message["content"] is None:
+            return False
+        if message["content"] == "":
+            return False
+        return True
+
+
+    def make_lmstudio_compatible(self,messages: List[Dict]) -> List[Dict]:
+        filtered_messages = list(filter(self.filter_incompatible_message, map(self.clean_message, messages)))
+        return filtered_messages
