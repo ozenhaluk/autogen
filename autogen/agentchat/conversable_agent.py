@@ -10,15 +10,6 @@ from autogen import OpenAIWrapper
 from autogen.code_utils import DEFAULT_MODEL, UNKNOWN, content_str, execute_code, extract_code, infer_lang, DEFAULT_LANG_CONFIG, extract_filename
 
 from .agent import Agent
-from autogen.code_utils import (
-    DEFAULT_LANG_CONFIG,
-    DEFAULT_MODEL,
-    UNKNOWN,
-    execute_code,
-    extract_code,
-    extract_filename,
-    infer_lang,
-)
 
 local_llm=True
 
@@ -649,7 +640,6 @@ class ConversableAgent(Agent):
         if local_llm:
             response = client.extract_function_calls_for_local_llm(response)
         return True, client.extract_text_or_function_call(response)[0]
->>>>>>> Add Function Calling Feature for Local LLM's such as LM Studio
 
     def generate_code_execution_reply(
         self,
