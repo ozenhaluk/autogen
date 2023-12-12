@@ -10,6 +10,15 @@ from autogen import OpenAIWrapper
 from autogen.code_utils import DEFAULT_MODEL, UNKNOWN, content_str, execute_code, extract_code, infer_lang, DEFAULT_LANG_CONFIG, extract_filename
 
 from .agent import Agent
+from autogen.code_utils import (
+    DEFAULT_LANG_CONFIG,
+    DEFAULT_MODEL,
+    UNKNOWN,
+    execute_code,
+    extract_code,
+    extract_filename,
+    infer_lang,
+)
 
 local_llm=True
 
@@ -637,25 +646,6 @@ class ConversableAgent(Agent):
         response = client.create(
             context=messages[-1].pop("context", None), messages=self._oai_system_message + messages
         )
-<<<<<<< HEAD
-
-        # TODO: line 301, line 271 is converting messages to dict. Can be removed after ChatCompletionMessage_to_dict is merged.
-        extracted_response = client.extract_text_or_completion_object(response)[0]
-        if not isinstance(extracted_response, str):
-            extracted_response = extracted_response.model_dump(mode="dict")
-        return True, extracted_response
-
-    async def a_generate_oai_reply(
-        self,
-        messages: Optional[List[Dict]] = None,
-        sender: Optional[Agent] = None,
-        config: Optional[Any] = None,
-    ) -> Tuple[bool, Union[str, Dict, None]]:
-        """Generate a reply using autogen.oai asynchronously."""
-        return await asyncio.get_event_loop().run_in_executor(
-            None, functools.partial(self.generate_oai_reply, messages=messages, sender=sender, config=config)
-        )
-=======
         if local_llm:
             response = client.extract_function_calls_for_local_llm(response)
         return True, client.extract_text_or_function_call(response)[0]
