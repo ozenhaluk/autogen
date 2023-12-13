@@ -641,7 +641,22 @@ class ConversableAgent(Agent):
         )
         if local_llm:
             response = client.extract_function_calls_for_local_llm(response)
-        return True, client.extract_text_or_function_call(response)[0]
+        # TODO: line 301, line 271 is converting messages to dict. Can be removed after ChatCompletionMessage_to_dict is merged.
+        extracted_response = client.extract_text_or_completion_object(response)[0]
+        if not isinstance(extracted_response, str):
+            extracted_response = extracted_response.model_dump(mode="dict")
+        return True, extracted_response
+
+    async def a_generate_oai_reply(
+        self,
+        messages: Optional[List[Dict]] = None,
+        sender: Optional[Agent] = None,
+        config: Optional[Any] = None,
+    ) -> Tuple[bool, Union[str, Dict, None]]:
+        """Generate a reply using autogen.oai asynchronously."""
+        return await asyncio.get_event_loop().run_in_executor(
+            None, functools.partial(self.generate_oai_reply, messages=messages, sender=sender, config=config)
+        )
 
     def generate_code_execution_reply(
         self,
@@ -1208,7 +1223,7 @@ class ConversableAgent(Agent):
 
         return is_exec_success, {
             "name": func_name,
-            "role": 'assistant' if local_llm else "function",
+            "role": 'function',
             "content": str(content),
         }
 
@@ -1262,7 +1277,7 @@ class ConversableAgent(Agent):
 
         return is_exec_success, {
             "name": func_name,
-            "role": 'assistant' if local_llm else "function",
+            "role": 'function',
             "content": str(content),
         }
 
