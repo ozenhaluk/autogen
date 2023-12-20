@@ -16,7 +16,8 @@ try:
     import openai
     from openai import OpenAI, APIError
     from openai.types.chat import ChatCompletion
-    from openai.types.chat.chat_completion import ChatCompletionMessage, Choice
+    from openai.types.chat.chat_completion import ChatCompletionMessage
+    from openai.types.chat.chat_completion_message import FunctionCall
     from openai.types.completion import Completion
     from openai.types.completion_usage import CompletionUsage
     import diskcache
@@ -467,21 +468,23 @@ class OpenAIWrapper:
         
     # a workaround function for solving non-gpt model's to be compatible with function calls
     @classmethod
-    def extract_function_calls_for_local_llm(cls, response: ChatCompletion | Completion) -> List[str]:
+    def extract_function_calls_for_local_llm(self, response: ChatCompletion | Completion) -> List[str]:
         choices = response.choices
         for choice in choices:
-            if isinstance(response, Completion):
-                if choice.text is not None:
-                    if 'function_call' in choice.text:
-                        function_call_str = re.search(r'(?:```(?:json)?\s*\n)?({\s*"function_call":\s*[^`]*})(?:```)?', choice.text).group(1)
-                        function_calls = json.loads(function_call_str)
-                        if (function_calls['function_call'] is not None):
-                            choice.message.function_call = function_calls['function_call']
-            if choice.message.content is not None:
-                if 'function_call' in choice.message.content:
-                    function_call_str = re.search(r'(?:```(?:json)?\s*\n)?({\s*"function_call":\s*[^`]*})(?:```)?', choice.message.content).group(1)
-                    function_calls = json.loads(function_call_str)
-                    if (function_calls['function_call'] is not None):
-                        choice.message.function_call = function_calls['function_call']
+            if choice.message.content is not None:  
+                match = re.match(r'(\w+)\((.*)\)', choice.message.content)
+                if match:
+                    function_name = match.group(1)
+                    parameters_str = match.group(2)
+                    parameters_str = re.sub(r'(\w+)=', r'"\1":', match.group(2))
+                    parameters_str = '{' + parameters_str + '}'
+                    try:
+                        parameters = json.loads(parameters_str)
+                    except json.JSONDecodeError:
+                        print(f'Invalid JSON string: {parameters_str}')
+                    else:
+                        print(f'Function Name: {function_name}')
+                        print(f'Parameters: {parameters}')
+                        choice.message.function_call = FunctionCall(name=function_name, arguments=json.dumps(parameters))
         return response
 # TODO: logging

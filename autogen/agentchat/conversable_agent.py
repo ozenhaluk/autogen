@@ -639,7 +639,7 @@ class ConversableAgent(Agent):
         response = client.create(
             context=messages[-1].pop("context", None), messages=self._oai_system_message + messages
         )
-        if local_llm:
+        if local_llm and self.llm_config['functions'] is not None:
             response = client.extract_function_calls_for_local_llm(response)
         # TODO: line 301, line 271 is converting messages to dict. Can be removed after ChatCompletionMessage_to_dict is merged.
         extracted_response = client.extract_text_or_completion_object(response)[0]
@@ -1188,18 +1188,14 @@ class ConversableAgent(Agent):
         func = self._function_map.get(func_name, None)
 
         is_exec_success = False
-        if func is not None:
-            if local_llm:
-                # for local_llm, we don't need to parse the arguments hence we already did it
-                arguments = func_call.get("arguments", {})
-            else:
-                # Extract arguments from a json-like string and put it into a dict.
-                input_string = self._format_json_str(func_call.get("arguments", "{}"))
-                try:
-                    arguments = json.loads(input_string)
-                except json.JSONDecodeError as e:
-                    arguments = None
-                    content = f"Error: {e}\n You argument should follow json format."
+        if func is not None:      
+            # Extract arguments from a json-like string and put it into a dict.
+            input_string = self._format_json_str(func_call.get("arguments", "{}"))
+            try:
+                arguments = json.loads(input_string)
+            except json.JSONDecodeError as e:
+                arguments = None
+                content = f"Error: {e}\n You argument should follow json format."
 
             # Try to execute the function
             if arguments is not None:
@@ -1244,18 +1240,14 @@ class ConversableAgent(Agent):
         func = self._function_map.get(func_name, None)
 
         is_exec_success = False
-        if func is not None:
-            if  local_llm:
-                # for local_llm, we don't need to parse the arguments hence we already did it
-                arguments = func_call.get("arguments", {})
-            else:  
-                # Extract arguments from a json-like string and put it into a dict.
-                input_string = self._format_json_str(func_call.get("arguments", "{}"))
-                try:
-                    arguments = json.loads(input_string)
-                except json.JSONDecodeError as e:
-                    arguments = None
-                    content = f"Error: {e}\n You argument should follow json format."
+        if func is not None: 
+            # Extract arguments from a json-like string and put it into a dict.
+            input_string = self._format_json_str(func_call.get("arguments", "{}"))
+            try:
+                arguments = json.loads(input_string)
+            except json.JSONDecodeError as e:
+                arguments = None
+                content = f"Error: {e}\n You argument should follow json format."
 
             # Try to execute the function
             if arguments is not None:
