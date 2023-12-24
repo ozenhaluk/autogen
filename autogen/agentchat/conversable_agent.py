@@ -11,8 +11,6 @@ from autogen.code_utils import DEFAULT_MODEL, UNKNOWN, content_str, execute_code
 
 from .agent import Agent
 
-local_llm=True
-
 try:
     from termcolor import colored
 except ImportError:
@@ -632,15 +630,20 @@ class ConversableAgent(Agent):
             return False, None
         if messages is None:
             messages = self._oai_messages[sender]
-        if local_llm:
+        # Pan's edit LM-Studio edit for removing empty context and change function role to assistant
+        lm_studio = self.llm_config.get("lm_studio", True)
+        # Pan's edit
+        if lm_studio:
             messages = self.make_lmstudio_compatible(messages)
         
         # TODO: #1143 handle token limit exceeded error
         response = client.create(
             context=messages[-1].pop("context", None), messages=self._oai_system_message + messages
         )
-        if local_llm and self.llm_config['functions'] is not None:
-            response = client.extract_function_calls_for_local_llm(response)
+        # Pan's edit LM-Studio and GorillaFunctions v0 edit. This extracts functionCall Dict from content by parsing.
+        if lm_studio and self.llm_config and 'functions' in self.llm_config and self.llm_config['functions'] is not None:
+            response = client.extract_function_calls_for_gorilla_on_lm_studio(response)
+        # Pan's edit
         # TODO: line 301, line 271 is converting messages to dict. Can be removed after ChatCompletionMessage_to_dict is merged.
         extracted_response = client.extract_text_or_completion_object(response)[0]
         if not isinstance(extracted_response, str):
@@ -1119,6 +1122,7 @@ class ConversableAgent(Agent):
             )
             if lang in ["bash", "shell", "sh"]:
                 exitcode, logs, image = self.run_code(code, lang=lang, **self._code_execution_config)
+            #Pan's edit. Default Lang Config is a list of languages that support some properties like being executed or / not and the list also covers other prompt's like nodejs in order to support Javascript
             elif lang.lower() in DEFAULT_LANG_CONFIG:
                 exitcode, logs, image = self.run_code(
                     code,
@@ -1126,6 +1130,7 @@ class ConversableAgent(Agent):
                     filename=extract_filename(code, lang.lower()),
                     **self._code_execution_config,
                 )
+            #Pan's edit
             else:
                 # In case the language is not supported, we return an error message.
                 exitcode, logs, image = (

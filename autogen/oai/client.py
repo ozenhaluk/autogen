@@ -365,7 +365,8 @@ class OpenAIWrapper:
                 "prompt_tokens": usage_summary.get(response.model, {}).get("prompt_tokens", 0)
                 + response.usage.prompt_tokens,
                 "completion_tokens": usage_summary.get(response.model, {}).get("completion_tokens", 0)
-                + response.usage.completion_tokens,
+                # Pan's edit assume 0 for completion if its None this error occurs in Local LLM's as they thend to have empty content responses
+                + response.usage.completion_tokens if response.usage.completion_tokens is not None else 0,
                 "total_tokens": usage_summary.get(response.model, {}).get("total_tokens", 0)
                 + response.usage.total_tokens,
             }
@@ -466,9 +467,9 @@ class OpenAIWrapper:
             choice.message if choice.message.function_call is not None else choice.message.content for choice in choices
         ]
         
-    # a workaround function for solving non-gpt model's to be compatible with function calls
+    # Pan's edit ,a workaround using gorilla functions v0 with lm studio to extract function calls
     @classmethod
-    def extract_function_calls_for_local_llm(self, response: ChatCompletion | Completion) -> List[str]:
+    def extract_function_calls_for_gorilla_on_lm_studio(self, response: ChatCompletion | Completion) -> List[str]:
         choices = response.choices
         for choice in choices:
             if choice.message.content is not None:  

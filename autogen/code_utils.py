@@ -34,6 +34,8 @@ TIMEOUT_MSG = "Timeout"
 DEFAULT_TIMEOUT = 600
 WIN32 = sys.platform == "win32"
 PATH_SEPARATOR = WIN32 and "\\" or "/"
+#Pan's edit. Default Lang Config is a list of languages that support some properties like being executed or / not and the list also covers other prompt's like nodejs in order to support Javascript
+#Also covers for the comment template and the extension of the file
 DEFAULT_LANG_CONFIG = {
         "python": {"comment_template": "# filename:{filename}", "action": "execute", "extension" : "py" , "cmd" : sys.executable},
         "javascript": {"comment_template": "// filename:{filename}", "action": "execute", "extension" : "js" , "cmd" : "node"},
