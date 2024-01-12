@@ -1,5 +1,26 @@
+import asyncio
+import copy
+import sys
+import time
+from typing import Any, Callable, Dict, Literal
+import unittest
+
 import pytest
-from autogen.agentchat import ConversableAgent
+from unittest.mock import patch
+from pydantic import BaseModel, Field
+from typing_extensions import Annotated
+import autogen
+
+from autogen.agentchat import ConversableAgent, UserProxyAgent
+from test_assistant_agent import KEY_LOC, OAI_CONFIG_LIST
+from conftest import skip_openai
+
+try:
+    import openai
+except ImportError:
+    skip = True
+else:
+    skip = False or skip_openai
 
 
 @pytest.fixture
@@ -331,9 +352,461 @@ async def test_a_generate_reply_raises_on_messages_and_sender_none(conversable_a
         await conversable_agent.a_generate_reply(messages=None, sender=None)
 
 
+def test_update_function_signature_and_register_functions() -> None:
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setenv("OPENAI_API_KEY", "mock")
+        agent = ConversableAgent(name="agent", llm_config={})
+
+        def exec_python(cell: str) -> None:
+            pass
+
+        def exec_sh(script: str) -> None:
+            pass
+
+        agent.update_function_signature(
+            {
+                "name": "python",
+                "description": "run cell in ipython and return the execution result.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "cell": {
+                            "type": "string",
+                            "description": "Valid Python cell to execute.",
+                        }
+                    },
+                    "required": ["cell"],
+                },
+            },
+            is_remove=False,
+        )
+
+        functions = agent.llm_config["functions"]
+        assert {f["name"] for f in functions} == {"python"}
+
+        agent.update_function_signature(
+            {
+                "name": "sh",
+                "description": "run a shell script and return the execution result.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "script": {
+                            "type": "string",
+                            "description": "Valid shell script to execute.",
+                        }
+                    },
+                    "required": ["script"],
+                },
+            },
+            is_remove=False,
+        )
+
+        functions = agent.llm_config["functions"]
+        assert {f["name"] for f in functions} == {"python", "sh"}
+
+        # register the functions
+        agent.register_function(
+            function_map={
+                "python": exec_python,
+                "sh": exec_sh,
+            }
+        )
+        assert set(agent.function_map.keys()) == {"python", "sh"}
+        assert agent.function_map["python"] == exec_python
+        assert agent.function_map["sh"] == exec_sh
+
+
+def test__wrap_function_sync():
+    CurrencySymbol = Literal["USD", "EUR"]
+
+    class Currency(BaseModel):
+        currency: Annotated[CurrencySymbol, Field(..., description="Currency code")]
+        amount: Annotated[float, Field(100.0, description="Amount of money in the currency")]
+
+    Currency(currency="USD", amount=100.0)
+
+    def exchange_rate(base_currency: CurrencySymbol, quote_currency: CurrencySymbol) -> float:
+        if base_currency == quote_currency:
+            return 1.0
+        elif base_currency == "USD" and quote_currency == "EUR":
+            return 1 / 1.1
+        elif base_currency == "EUR" and quote_currency == "USD":
+            return 1.1
+        else:
+            raise ValueError(f"Unknown currencies {base_currency}, {quote_currency}")
+
+    agent = ConversableAgent(name="agent", llm_config=False)
+
+    @agent._wrap_function
+    def currency_calculator(
+        base: Annotated[Currency, "Base currency"],
+        quote_currency: Annotated[CurrencySymbol, "Quote currency"] = "EUR",
+    ) -> Currency:
+        quote_amount = exchange_rate(base.currency, quote_currency) * base.amount
+        return Currency(amount=quote_amount, currency=quote_currency)
+
+    assert (
+        currency_calculator(base={"currency": "USD", "amount": 110.11}, quote_currency="EUR")
+        == '{"currency":"EUR","amount":100.1}'
+    )
+
+    assert not asyncio.coroutines.iscoroutinefunction(currency_calculator)
+
+
+@pytest.mark.asyncio
+async def test__wrap_function_async():
+    CurrencySymbol = Literal["USD", "EUR"]
+
+    class Currency(BaseModel):
+        currency: Annotated[CurrencySymbol, Field(..., description="Currency code")]
+        amount: Annotated[float, Field(100.0, description="Amount of money in the currency")]
+
+    Currency(currency="USD", amount=100.0)
+
+    def exchange_rate(base_currency: CurrencySymbol, quote_currency: CurrencySymbol) -> float:
+        if base_currency == quote_currency:
+            return 1.0
+        elif base_currency == "USD" and quote_currency == "EUR":
+            return 1 / 1.1
+        elif base_currency == "EUR" and quote_currency == "USD":
+            return 1.1
+        else:
+            raise ValueError(f"Unknown currencies {base_currency}, {quote_currency}")
+
+    agent = ConversableAgent(name="agent", llm_config=False)
+
+    @agent._wrap_function
+    async def currency_calculator(
+        base: Annotated[Currency, "Base currency"],
+        quote_currency: Annotated[CurrencySymbol, "Quote currency"] = "EUR",
+    ) -> Currency:
+        quote_amount = exchange_rate(base.currency, quote_currency) * base.amount
+        return Currency(amount=quote_amount, currency=quote_currency)
+
+    assert (
+        await currency_calculator(base={"currency": "USD", "amount": 110.11}, quote_currency="EUR")
+        == '{"currency":"EUR","amount":100.1}'
+    )
+
+    assert asyncio.coroutines.iscoroutinefunction(currency_calculator)
+
+
+def get_origin(d: Dict[str, Callable[..., Any]]) -> Dict[str, Callable[..., Any]]:
+    return {k: v._origin for k, v in d.items()}
+
+
+def test_register_for_llm():
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setenv("OPENAI_API_KEY", "mock")
+        agent3 = ConversableAgent(name="agent3", llm_config={"config_list": []})
+        agent2 = ConversableAgent(name="agent2", llm_config={"config_list": []})
+        agent1 = ConversableAgent(name="agent1", llm_config={"config_list": []})
+
+        @agent3.register_for_llm()
+        @agent2.register_for_llm(name="python")
+        @agent1.register_for_llm(description="run cell in ipython and return the execution result.")
+        def exec_python(cell: Annotated[str, "Valid Python cell to execute."]) -> str:
+            pass
+
+        expected1 = [
+            {
+                "type": "function",
+                "function": {
+                    "description": "run cell in ipython and return the execution result.",
+                    "name": "exec_python",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "cell": {
+                                "type": "string",
+                                "description": "Valid Python cell to execute.",
+                            }
+                        },
+                        "required": ["cell"],
+                    },
+                },
+            }
+        ]
+        expected2 = copy.deepcopy(expected1)
+        expected2[0]["function"]["name"] = "python"
+        expected3 = expected2
+
+        assert agent1.llm_config["tools"] == expected1
+        assert agent2.llm_config["tools"] == expected2
+        assert agent3.llm_config["tools"] == expected3
+
+        @agent3.register_for_llm()
+        @agent2.register_for_llm()
+        @agent1.register_for_llm(name="sh", description="run a shell script and return the execution result.")
+        async def exec_sh(script: Annotated[str, "Valid shell script to execute."]) -> str:
+            pass
+
+        expected1 = expected1 + [
+            {
+                "type": "function",
+                "function": {
+                    "name": "sh",
+                    "description": "run a shell script and return the execution result.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "script": {
+                                "type": "string",
+                                "description": "Valid shell script to execute.",
+                            }
+                        },
+                        "required": ["script"],
+                    },
+                },
+            }
+        ]
+        expected2 = expected2 + [expected1[1]]
+        expected3 = expected3 + [expected1[1]]
+
+        assert agent1.llm_config["tools"] == expected1
+        assert agent2.llm_config["tools"] == expected2
+        assert agent3.llm_config["tools"] == expected3
+
+
+def test_register_for_llm_without_description():
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setenv("OPENAI_API_KEY", "mock")
+        agent = ConversableAgent(name="agent", llm_config={})
+
+        with pytest.raises(ValueError) as e:
+
+            @agent.register_for_llm()
+            def exec_python(cell: Annotated[str, "Valid Python cell to execute."]) -> str:
+                pass
+
+        assert e.value.args[0] == "Function description is required, none found."
+
+
+def test_register_for_llm_without_LLM():
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setenv("OPENAI_API_KEY", "mock")
+        agent = ConversableAgent(name="agent", llm_config=None)
+        agent.llm_config = None
+        assert agent.llm_config is None
+
+        with pytest.raises(RuntimeError) as e:
+
+            @agent.register_for_llm(description="run cell in ipython and return the execution result.")
+            def exec_python(cell: Annotated[str, "Valid Python cell to execute."]) -> str:
+                pass
+
+        assert e.value.args[0] == "LLM config must be setup before registering a function for LLM."
+
+
+def test_register_for_execution():
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setenv("OPENAI_API_KEY", "mock")
+        agent = ConversableAgent(name="agent", llm_config={"config_list": []})
+        user_proxy_1 = UserProxyAgent(name="user_proxy_1")
+        user_proxy_2 = UserProxyAgent(name="user_proxy_2")
+
+        @user_proxy_2.register_for_execution(name="python")
+        @agent.register_for_execution()
+        @agent.register_for_llm(description="run cell in ipython and return the execution result.")
+        @user_proxy_1.register_for_execution()
+        def exec_python(cell: Annotated[str, "Valid Python cell to execute."]):
+            pass
+
+        expected_function_map_1 = {"exec_python": exec_python}
+        assert get_origin(agent.function_map) == expected_function_map_1
+        assert get_origin(user_proxy_1.function_map) == expected_function_map_1
+
+        expected_function_map_2 = {"python": exec_python}
+        assert get_origin(user_proxy_2.function_map) == expected_function_map_2
+
+        @agent.register_for_execution()
+        @agent.register_for_llm(description="run a shell script and return the execution result.")
+        @user_proxy_1.register_for_execution(name="sh")
+        async def exec_sh(script: Annotated[str, "Valid shell script to execute."]):
+            pass
+
+        expected_function_map = {
+            "exec_python": exec_python,
+            "sh": exec_sh,
+        }
+        assert get_origin(agent.function_map) == expected_function_map
+        assert get_origin(user_proxy_1.function_map) == expected_function_map
+
+
+@pytest.mark.skipif(
+    skip or not sys.version.startswith("3.10"),
+    reason="do not run if openai is not installed or py!=3.10",
+)
+def test_function_registration_e2e_sync() -> None:
+    config_list = autogen.config_list_from_json(
+        OAI_CONFIG_LIST,
+        filter_dict={
+            "model": ["gpt-4", "gpt-4-0314", "gpt4", "gpt-4-32k", "gpt-4-32k-0314", "gpt-4-32k-v0314"],
+        },
+        file_location=KEY_LOC,
+    )
+
+    llm_config = {
+        "config_list": config_list,
+    }
+
+    coder = autogen.AssistantAgent(
+        name="chatbot",
+        system_message="For coding tasks, only use the functions you have been provided with. Reply TERMINATE when the task is done.",
+        llm_config=llm_config,
+    )
+
+    # create a UserProxyAgent instance named "user_proxy"
+    user_proxy = autogen.UserProxyAgent(
+        name="user_proxy",
+        system_message="A proxy for the user for executing code.",
+        is_termination_msg=lambda x: x.get("content", "") and x.get("content", "").rstrip().endswith("TERMINATE"),
+        human_input_mode="NEVER",
+        max_consecutive_auto_reply=10,
+        code_execution_config={"work_dir": "coding"},
+    )
+
+    # define functions according to the function description
+    timer_mock = unittest.mock.MagicMock()
+    stopwatch_mock = unittest.mock.MagicMock()
+
+    # An example async function
+    @user_proxy.register_for_execution()
+    @coder.register_for_llm(description="create a timer for N seconds")
+    def timer(num_seconds: Annotated[str, "Number of seconds in the timer."]) -> str:
+        print("timer is running")
+        for i in range(int(num_seconds)):
+            print(".", end="")
+            time.sleep(0.01)
+        print()
+
+        timer_mock(num_seconds=num_seconds)
+        return "Timer is done!"
+
+    # An example sync function
+    @user_proxy.register_for_execution()
+    @coder.register_for_llm(description="create a stopwatch for N seconds")
+    def stopwatch(num_seconds: Annotated[str, "Number of seconds in the stopwatch."]) -> str:
+        print("stopwatch is running")
+        # assert False, "stopwatch's alive!"
+        for i in range(int(num_seconds)):
+            print(".", end="")
+            time.sleep(0.01)
+        print()
+
+        stopwatch_mock(num_seconds=num_seconds)
+        return "Stopwatch is done!"
+
+    # start the conversation
+    # 'await' is used to pause and resume code execution for async IO operations.
+    # Without 'await', an async function returns a coroutine object but doesn't execute the function.
+    # With 'await', the async function is executed and the current function is paused until the awaited function returns a result.
+    user_proxy.initiate_chat(  # noqa: F704
+        coder,
+        message="Create a timer for 2 seconds and then a stopwatch for 3 seconds.",
+    )
+
+    timer_mock.assert_called_once_with(num_seconds="2")
+    stopwatch_mock.assert_called_once_with(num_seconds="3")
+
+
+@pytest.mark.skipif(
+    skip or not sys.version.startswith("3.10"),
+    reason="do not run if openai is not installed or py!=3.10",
+)
+@pytest.mark.asyncio()
+async def test_function_registration_e2e_async() -> None:
+    config_list = autogen.config_list_from_json(
+        OAI_CONFIG_LIST,
+        filter_dict={
+            "model": ["gpt-4", "gpt-4-0314", "gpt4", "gpt-4-32k", "gpt-4-32k-0314", "gpt-4-32k-v0314"],
+        },
+        file_location=KEY_LOC,
+    )
+
+    llm_config = {
+        "config_list": config_list,
+    }
+
+    coder = autogen.AssistantAgent(
+        name="chatbot",
+        system_message="For coding tasks, only use the functions you have been provided with. Reply TERMINATE when the task is done.",
+        llm_config=llm_config,
+    )
+
+    # create a UserProxyAgent instance named "user_proxy"
+    user_proxy = autogen.UserProxyAgent(
+        name="user_proxy",
+        system_message="A proxy for the user for executing code.",
+        is_termination_msg=lambda x: x.get("content", "") and x.get("content", "").rstrip().endswith("TERMINATE"),
+        human_input_mode="NEVER",
+        max_consecutive_auto_reply=10,
+        code_execution_config={"work_dir": "coding"},
+    )
+
+    # define functions according to the function description
+    timer_mock = unittest.mock.MagicMock()
+    stopwatch_mock = unittest.mock.MagicMock()
+
+    # An example async function
+    @user_proxy.register_for_execution()
+    @coder.register_for_llm(description="create a timer for N seconds")
+    async def timer(num_seconds: Annotated[str, "Number of seconds in the timer."]) -> str:
+        print("timer is running")
+        for i in range(int(num_seconds)):
+            print(".", end="")
+            await asyncio.sleep(0.01)
+        print()
+
+        timer_mock(num_seconds=num_seconds)
+        return "Timer is done!"
+
+    # An example sync function
+    @user_proxy.register_for_execution()
+    @coder.register_for_llm(description="create a stopwatch for N seconds")
+    def stopwatch(num_seconds: Annotated[str, "Number of seconds in the stopwatch."]) -> str:
+        print("stopwatch is running")
+        # assert False, "stopwatch's alive!"
+        for i in range(int(num_seconds)):
+            print(".", end="")
+            time.sleep(0.01)
+        print()
+
+        stopwatch_mock(num_seconds=num_seconds)
+        return "Stopwatch is done!"
+
+    # start the conversation
+    # 'await' is used to pause and resume code execution for async IO operations.
+    # Without 'await', an async function returns a coroutine object but doesn't execute the function.
+    # With 'await', the async function is executed and the current function is paused until the awaited function returns a result.
+    await user_proxy.a_initiate_chat(  # noqa: F704
+        coder,
+        message="Create a timer for 4 seconds and then a stopwatch for 5 seconds.",
+    )
+
+    timer_mock.assert_called_once_with(num_seconds="4")
+    stopwatch_mock.assert_called_once_with(num_seconds="5")
+
+
+@pytest.mark.skipif(
+    skip,
+    reason="do not run if skipping openai",
+)
+def test_no_llm_config():
+    # We expect a TypeError when the model isn't specified
+    with pytest.raises(TypeError, match=r".*Missing required arguments.*"):
+        agent1 = ConversableAgent(name="agent1", llm_config=False, human_input_mode="NEVER", default_auto_reply="")
+        agent2 = ConversableAgent(
+            name="agent2", llm_config={"api_key": "Intentionally left blank."}, human_input_mode="NEVER"
+        )
+        agent1.initiate_chat(agent2, message="hi")
+
+
 if __name__ == "__main__":
     # test_trigger()
     # test_context()
     # test_max_consecutive_auto_reply()
     # test_generate_code_execution_reply()
-    test_conversable_agent()
+    # test_conversable_agent()
+    test_no_llm_config()
