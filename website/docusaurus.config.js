@@ -50,7 +50,7 @@ module.exports = {
           type: "doc",
           docId: "reference/agentchat/conversable_agent",
           position: "left",
-          label: "SDK",
+          label: "API",
         },
         { to: "blog", label: "Blog", position: "left" },
         {
@@ -58,11 +58,6 @@ module.exports = {
           docId: "FAQ",
           position: "left",
           label: "FAQ",
-        },
-        {
-          href: "https://github.com/microsoft/autogen",
-          label: "GitHub",
-          position: "right",
         },
         // {
         //   to: 'examples',
@@ -75,19 +70,31 @@ module.exports = {
           label: "Examples",
         },
         {
-          label: "Resources",
+          to: "docs/notebooks",
+          position: "left",
+          label: "Notebooks",
+        },
+        {
+          type: "doc",
+          position: "left",
+          docId: "Gallery",
+        },
+        {
+          label: "Other Languages",
           type: "dropdown",
+          position: "right",
           items: [
             {
-              type: "doc",
-              docId: "Ecosystem",
-            },
-            {
-              type: "doc",
-              docId: "Gallery",
-            },
+              label: "Dotnet",
+              href: "https://microsoft.github.io/autogen-for-net/",
+            }
           ],
         },
+        {
+          href: "https://github.com/microsoft/autogen",
+          label: "GitHub",
+          position: "right",
+        }
       ],
     },
     footer: {
@@ -121,6 +128,14 @@ module.exports = {
         },
       ],
       copyright: `Copyright © ${new Date().getFullYear()} AutoGen Authors |  <a target="_blank" style="color:#10adff" href="https://go.microsoft.com/fwlink/?LinkId=521839">Privacy and Cookies</a>`,
+    },
+    announcementBar: {
+      id: 'whats_new',
+      content:
+        'What\'s new in AutoGen? Read <a href="/autogen/blog/2024/03/03/AutoGen-Update">this blog</a> for an overview of updates',
+      backgroundColor: '#fafbfc',
+      textColor: '#091E42',
+      isCloseable: true,
     },
   },
   presets: [
@@ -169,6 +184,37 @@ module.exports = {
         // When applying `zh` in language, please install `nodejieba` in your project.
       },
     ],
-    customPostCssPlugin
+    customPostCssPlugin,
+    [
+      "@docusaurus/plugin-client-redirects",
+      {
+        redirects: [
+          {
+            to: "/docs/topics/llm_configuration",
+            from: ["/docs/llm_endpoint_configuration/"],
+          },
+          {
+            to: "/docs/ecosystem/memgpt/",
+            from: ["/docs/Ecosystem"],
+          },
+          {
+            to: "/docs/Getting-Started",
+            from: ["/docs/"],
+          },
+          {
+            to: "/docs/topics/llm_configuration",
+            from: ["/docs/llm_configuration"],
+          },
+          {
+            to: "/docs/tutorial/chat-termination",
+            from: ["/docs/tutorial/termination"],
+          },
+          {
+            to: "/docs/tutorial/what-next",
+            from: ["/docs/tutorial/what-is-next"],
+          }
+        ],
+      },
+    ]
   ],
 };

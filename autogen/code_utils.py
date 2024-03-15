@@ -8,14 +8,11 @@ import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from hashlib import md5
-from typing import Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 from autogen import oai
 
-try:
-    import docker
-except ImportError:
-    docker = None
+import docker
 
 SENTINEL = object()
 DEFAULT_MODEL = "gpt-4"
@@ -49,13 +46,15 @@ DEFAULT_LANG_CONFIG = {
         "shell": {"comment_template": "# filename:{filename}", "action": "execute", "extension" : "sh" , "cmd" : "sh"},
         "bash": {"comment_template": "# filename:{filename}", "action": "execute", "extension" : "sh" , "cmd" : "sh"},
         "ps1": {"comment_template": "# filename:{filename}", "action": "execute", "extension" : "ps1" , "cmd" : "powershell"},
+        "powershell": {"comment_template": "# filename:{filename}", "action": "execute", "extension" : "ps1" , "cmd" : "powershell"},
+        "pwsh": {"comment_template": "# filename:{filename}", "action": "execute", "extension" : "ps1" , "cmd" : "pwsh"},
         # add more languages here if needed
     }
 
 logger = logging.getLogger(__name__)
 
 
-def content_str(content: Union[str, List, None]) -> str:
+def content_str(content: Union[str, List[Dict[str, Any]], None]) -> str:
     """Converts `content` into a string format.
 
     This function processes content that may be a string, a list of mixed text and image URLs, or None,
@@ -96,7 +95,7 @@ def content_str(content: Union[str, List, None]) -> str:
     return rst
 
 
-def infer_lang(code):
+def infer_lang(code: str) -> str:
     """infer the language for the code.
     TODO: make it robust.
     """
@@ -241,20 +240,42 @@ def timeout_handler(signum, frame):
     raise TimeoutError("Timed out!")
 
 
+def get_powershell_command():
+    try:
+        result = subprocess.run(["powershell", "$PSVersionTable.PSVersion.Major"], capture_output=True, text=True)
+        if result.returncode == 0:
+            return "powershell"
+
+    except (FileNotFoundError, NotADirectoryError):
+        # This means that 'powershell' command is not found so now we try looking for 'pwsh'
+        try:
+            result = subprocess.run(
+                ["pwsh", "-Command", "$PSVersionTable.PSVersion.Major"], capture_output=True, text=True
+            )
+            if result.returncode == 0:
+                return "pwsh"
+
+        except (FileNotFoundError, NotADirectoryError):
+            if WIN32:
+                logging.warning("Neither powershell nor pwsh is installed but it is a Windows OS")
+            return None
+
+
+powershell_command = get_powershell_command()
+
+
 def _cmd(lang):
     if DEFAULT_LANG_CONFIG[lang]["action"] == "execute":
         return DEFAULT_LANG_CONFIG[lang]["cmd"]
     raise NotImplementedError(f"{lang} not recognized in code execution")
 
 
-def is_docker_running():
+def is_docker_running() -> bool:
     """Check if docker is running.
 
     Returns:
         bool: True if docker is running; False otherwise.
     """
-    if docker is None:
-        return False
     try:
         client = docker.from_env()
         client.ping()
@@ -263,7 +284,7 @@ def is_docker_running():
         return False
 
 
-def in_docker_container():
+def in_docker_container() -> bool:
     """Check if the code is running in a docker container.
 
     Returns:
@@ -341,7 +362,7 @@ def execute_code(
     work_dir: Optional[str] = None,
     use_docker: Union[List[str], str, bool] = SENTINEL,
     lang: Optional[str] = "python",
-) -> Tuple[int, str, str]:
+) -> Tuple[int, str, Optional[str]]:
     """Execute code in a docker container.
     This function is not tested on MacOS.
 
