@@ -814,13 +814,11 @@ class OpenAIWrapper:
             else:
                 usage_summary["total_cost"] += cost
 
-            usage_summary[response.model] = {
-                "cost": usage_summary.get(response.model, {}).get("cost", 0) + response.cost,  # type: ignore [union-attr]
-                "prompt_tokens": usage_summary.get(response.model, {}).get("prompt_tokens", 0) + usage.prompt_tokens,
-                "completion_tokens": usage_summary.get(response.model, {}).get("completion_tokens", 0)
-                # Pan's edit assume 0 for completion if its None this error occurs in Local LLM's as they thend to have empty content responses
-                + usage.completion_tokens if response.usage.completion_tokens is not None else 0,
-                "total_tokens": usage_summary.get(response.model, {}).get("total_tokens", 0) + usage.total_tokens,
+            usage_summary[model] = {
+                "cost": usage_summary.get(model, {}).get("cost", 0) + cost,
+                "prompt_tokens": usage_summary.get(model, {}).get("prompt_tokens", 0) + prompt_tokens,
+                "completion_tokens": usage_summary.get(model, {}).get("completion_tokens", 0) + completion_tokens,
+                "total_tokens": usage_summary.get(model, {}).get("total_tokens", 0) + total_tokens,
             }
             return usage_summary
 
