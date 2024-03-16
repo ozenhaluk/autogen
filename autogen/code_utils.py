@@ -33,23 +33,81 @@ TIMEOUT_MSG = "Timeout"
 DEFAULT_TIMEOUT = 600
 WIN32 = sys.platform == "win32"
 PATH_SEPARATOR = WIN32 and "\\" or "/"
-#Pan's edit. Default Lang Config is a list of languages that support some properties like being executed or / not and the list also covers other prompt's like nodejs in order to support Javascript
-#Also covers for the comment template and the extension of the file
+# Pan's edit. Default Lang Config is a list of languages that support some properties like being executed or / not and the list also covers other prompt's like nodejs in order to support Javascript
+# Also covers for the comment template and the extension of the file
+# Regex and function changes 16/04/2024 for better support of the languages
 DEFAULT_LANG_CONFIG = {
-        "python": {"comment_template": "# filename:{filename}", "action": "execute", "extension" : "py" , "cmd" : sys.executable},
-        "javascript": {"comment_template": "// filename:{filename}", "action": "execute", "extension" : "js" , "cmd" : "node"},
-        "java": {"comment_template": "// filename:{filename}", "action": "execute", "extension" : "java" , "cmd" : "%JAVA_HOME%/bin/java%"},
-        "typescript": {"comment_template": "// filename:{filename}", "action": "execute", "extension" : "ts" , "cmd" : "node"},
-        "html": {"comment_template": "<!-- filename:{filename} -->", "action": "save", "extension" : "html" },
-        "css": {"comment_template": "/* filename:{filename}", "action": "save", "extension" : "css"},
-        "sh": {"comment_template": "# filename:{filename}", "action": "execute", "extension" : "sh" , "cmd" : "sh"},
-        "shell": {"comment_template": "# filename:{filename}", "action": "execute", "extension" : "sh" , "cmd" : "sh"},
-        "bash": {"comment_template": "# filename:{filename}", "action": "execute", "extension" : "sh" , "cmd" : "sh"},
-        "ps1": {"comment_template": "# filename:{filename}", "action": "execute", "extension" : "ps1" , "cmd" : "powershell"},
-        "powershell": {"comment_template": "# filename:{filename}", "action": "execute", "extension" : "ps1" , "cmd" : "powershell"},
-        "pwsh": {"comment_template": "# filename:{filename}", "action": "execute", "extension" : "ps1" , "cmd" : "pwsh"},
-        # add more languages here if needed
+    "python": {
+        "comment_template": r"(?:#\s?)(?:filename\s?:\s?)?\s?(.*\.py)",
+        "action": "execute",
+        "extension": "py",
+        "cmd": "python"
+    },
+    "javascript": {
+        "comment_template": r"(?:\/\/\s?)(?:filename\s?:\s?)?\s?(.*\.js)",
+        "action": "execute",
+        "extension": "js",
+        "cmd": "node"
+    },
+    "java": {
+        "comment_template": r"(?:\/\/\s?)(?:filename\s?:\s?)?\s?(.*\.java)",
+        "action": "execute",
+        "extension": "java",
+        "cmd": "java"
+    },
+    "typescript": {
+        "comment_template": r"(?:\/\/\s?)(?:filename\s?:\s?)?\s?(.*\.ts)",
+        "action": "execute",
+        "extension": "ts",
+        "cmd": "node"
+    },
+    "html": {
+        "comment_template": r"(?:<!--\s?)(?:filename\s?:\s?)?\s?(.*\.html)",
+        "action": "save",
+        "extension": "html"
+    },
+    "css": {
+        "comment_template": r"(?:\/\*\s?)(?:filename\s?:\s?)?\s?(.*\.css)",
+        "action": "save",
+        "extension": "css"
+    },
+    "sh": {
+        "comment_template": r"(?:#\s?)(?:filename\s?:\s?)?\s?(.*\.sh)",
+        "action": "execute",
+        "extension": "sh",
+        "cmd": "sh"
+    },
+    "shell": {
+        "comment_template": r"(?:#\s?)(?:filename\s?:\s?)?\s?(.*\.sh)",
+        "action": "execute",
+        "extension": "sh",
+        "cmd": "sh"
+    },
+    "bash": {
+        "comment_template": r"(?:#\s?)(?:filename\s?:\s?)?\s?(.*\.sh)",
+        "action": "execute",
+        "extension": "sh",
+        "cmd": "sh"
+    },
+    "ps1": {
+        "comment_template": r"(?:#\s?)(?:filename\s?:\s?)?\s?(.*\.ps1)",
+        "action": "execute",
+        "extension": "ps1",
+        "cmd": "powershell"
+    },
+    "powershell": {
+        "comment_template": r"(?:#\s?)(?:filename\s?:\s?)?\s?(.*\.ps1)",
+        "action": "execute",
+        "extension": "ps1",
+        "cmd": "powershell"
+    },
+    "pwsh": {
+        "comment_template": r"(?:#\s?)(?:filename\s?:\s?)?\s?(.*\.ps1)",
+        "action": "execute",
+        "extension": "ps1",
+        "cmd": "pwsh"
     }
+}
 
 logger = logging.getLogger(__name__)
 
@@ -153,14 +211,26 @@ def extract_code(
 
     return extracted
 
-def extract_filename(code,lang):
-    filename = None
-    config = DEFAULT_LANG_CONFIG[lang.lower()]
-    pattern = config["comment_template"].format(filename="(.*)")
-    match = re.match(pattern, code)
-    if match:
-        filename = match.group(1).strip()
-    return filename
+def extract_filename(code, lang):
+    """
+    Extract the filename from the code.
+
+    Args:
+        code (str): The code.
+        lang (str): The language of the code.
+
+    Returns:
+        str: The filename. (Example: "filename: example.py" or "CustomerDTO.java" etc.)
+
+    """
+    config = DEFAULT_LANG_CONFIG.get(lang.lower())
+    if not config:
+        return None
+    match = re.search(config["comment_template"], code, re.MULTILINE)
+    if match and match.group(1):
+        return match.group(1).strip()
+    return None
+
 
 def generate_code(pattern: str = CODE_BLOCK_PATTERN, **config) -> Tuple[str, float]:
     """(openai<1) Generate code.
