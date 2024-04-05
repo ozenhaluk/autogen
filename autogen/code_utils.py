@@ -14,6 +14,8 @@ from autogen import oai
 
 import docker
 
+from .types import UserMessageImageContentPart, UserMessageTextContentPart
+
 SENTINEL = object()
 DEFAULT_MODEL = "gpt-4"
 FAST_MODEL = "gpt-3.5-turbo"
@@ -33,87 +35,12 @@ TIMEOUT_MSG = "Timeout"
 DEFAULT_TIMEOUT = 600
 WIN32 = sys.platform == "win32"
 PATH_SEPARATOR = WIN32 and "\\" or "/"
-# Pan's edit. Default Lang Config is a list of languages that support some properties like being executed or / not and the list also covers other prompt's like nodejs in order to support Javascript
-# Also covers for the comment template and the extension of the file
-# Regex and function changes 16/04/2024 for better support of the languages
-DEFAULT_LANG_CONFIG = {
-    "python": {
-        "comment_template": r"(?:#\s?)(?:filename\s?:\s?)?\s?(.*\.py)",
-        "action": "execute",
-        "extension": "py",
-        "cmd": "python"
-    },
-    "javascript": {
-        "comment_template": r"(?:\/\/\s?)(?:filename\s?:\s?)?\s?(.*\.js)",
-        "action": "execute",
-        "extension": "js",
-        "cmd": "node"
-    },
-    "java": {
-        "comment_template": r"(?:\/\/\s?)(?:filename\s?:\s?)?\s?(.*\.java)",
-        "action": "execute",
-        "extension": "java",
-        "cmd": "java"
-    },
-    "typescript": {
-        "comment_template": r"(?:\/\/\s?)(?:filename\s?:\s?)?\s?(.*\.ts)",
-        "action": "execute",
-        "extension": "ts",
-        "cmd": "node"
-    },
-    "html": {
-        "comment_template": r"(?:<!--\s?)(?:filename\s?:\s?)?\s?(.*\.html)",
-        "action": "save",
-        "extension": "html"
-    },
-    "css": {
-        "comment_template": r"(?:\/\*\s?)(?:filename\s?:\s?)?\s?(.*\.css)",
-        "action": "save",
-        "extension": "css"
-    },
-    "sh": {
-        "comment_template": r"(?:#\s?)(?:filename\s?:\s?)?\s?(.*\.sh)",
-        "action": "execute",
-        "extension": "sh",
-        "cmd": "sh"
-    },
-    "shell": {
-        "comment_template": r"(?:#\s?)(?:filename\s?:\s?)?\s?(.*\.sh)",
-        "action": "execute",
-        "extension": "sh",
-        "cmd": "sh"
-    },
-    "bash": {
-        "comment_template": r"(?:#\s?)(?:filename\s?:\s?)?\s?(.*\.sh)",
-        "action": "execute",
-        "extension": "sh",
-        "cmd": "sh"
-    },
-    "ps1": {
-        "comment_template": r"(?:#\s?)(?:filename\s?:\s?)?\s?(.*\.ps1)",
-        "action": "execute",
-        "extension": "ps1",
-        "cmd": "powershell"
-    },
-    "powershell": {
-        "comment_template": r"(?:#\s?)(?:filename\s?:\s?)?\s?(.*\.ps1)",
-        "action": "execute",
-        "extension": "ps1",
-        "cmd": "powershell"
-    },
-    "pwsh": {
-        "comment_template": r"(?:#\s?)(?:filename\s?:\s?)?\s?(.*\.ps1)",
-        "action": "execute",
-        "extension": "ps1",
-        "cmd": "pwsh"
-    }
-}
 
 logger = logging.getLogger(__name__)
 
 
-def content_str(content: Union[str, List[Dict[str, Any]], None]) -> str:
-    """Converts `content` into a string format.
+def content_str(content: Union[str, List[Union[UserMessageTextContentPart, UserMessageImageContentPart]], None]) -> str:
+    """Converts the `content` field of an OpenAI merssage into a string format.
 
     This function processes content that may be a string, a list of mixed text and image URLs, or None,
     and converts it into a string. Text is directly appended to the result string, while image URLs are
@@ -315,7 +242,6 @@ def get_powershell_command():
         result = subprocess.run(["powershell", "$PSVersionTable.PSVersion.Major"], capture_output=True, text=True)
         if result.returncode == 0:
             return "powershell"
-
     except (FileNotFoundError, NotADirectoryError):
         # This means that 'powershell' command is not found so now we try looking for 'pwsh'
         try:
@@ -324,19 +250,25 @@ def get_powershell_command():
             )
             if result.returncode == 0:
                 return "pwsh"
+        except FileExistsError as e:
+            raise FileNotFoundError(
+                "Neither powershell.exe nor pwsh.exe is present in the system. "
+                "Please install PowerShell and try again. "
+            ) from e
+        except NotADirectoryError as e:
+            raise NotADirectoryError(
+                "PowerShell is either not installed or its path is not given "
+                "properly in the environment variable PATH. Please check the "
+                "path and try again. "
+            ) from e
+    except PermissionError as e:
+        raise PermissionError("No permission to run powershell.") from e
 
-        except (FileNotFoundError, NotADirectoryError):
-            if WIN32:
-                logging.warning("Neither powershell nor pwsh is installed but it is a Windows OS")
-            return None
 
-
-powershell_command = get_powershell_command()
-
-
-def _cmd(lang):
+def _cmd(lang: str) -> str:
     if DEFAULT_LANG_CONFIG[lang]["action"] == "execute":
         return DEFAULT_LANG_CONFIG[lang]["cmd"]
+
     raise NotImplementedError(f"{lang} not recognized in code execution")
 
 
@@ -562,9 +494,7 @@ def execute_code(
     image_list = (
         ["python:3-slim", "python:3", "python:3-windowsservercore"]
         if use_docker is True
-        else [use_docker]
-        if isinstance(use_docker, str)
-        else use_docker
+        else [use_docker] if isinstance(use_docker, str) else use_docker
     )
     for image in image_list:
         # check if the image exists
@@ -761,6 +691,83 @@ def eval_function_completions(
         "gen_cost": gen_cost,
         "assertions": assertions,
     }
+
+
+# Pan's edit. Default Lang Config is a list of languages that support some properties like being executed or / not and the list also covers other prompt's like nodejs in order to support Javascript
+# Also covers for the comment template and the extension of the file
+# Regex and function changes 16/04/2024 for better support of the languages
+DEFAULT_LANG_CONFIG = {
+    "python": {
+        "comment_template": r"(?:#\s?)(?:filename\s?:\s?)?\s?(.*\.py)",
+        "action": "execute",
+        "extension": "py",
+        "cmd": "python"
+    },
+    "javascript": {
+        "comment_template": r"(?:\/\/\s?)(?:filename\s?:\s?)?\s?(.*\.js)",
+        "action": "execute",
+        "extension": "js",
+        "cmd": "node"
+    },
+    "java": {
+        "comment_template": r"(?:\/\/\s?)(?:filename\s?:\s?)?\s?(.*\.java)",
+        "action": "execute",
+        "extension": "java",
+        "cmd": "java"
+    },
+    "typescript": {
+        "comment_template": r"(?:\/\/\s?)(?:filename\s?:\s?)?\s?(.*\.ts)",
+        "action": "execute",
+        "extension": "ts",
+        "cmd": "node"
+    },
+    "html": {
+        "comment_template": r"(?:<!--\s?)(?:filename\s?:\s?)?\s?(.*\.html)",
+        "action": "save",
+        "extension": "html"
+    },
+    "css": {
+        "comment_template": r"(?:\/\*\s?)(?:filename\s?:\s?)?\s?(.*\.css)",
+        "action": "save",
+        "extension": "css"
+    },
+    "sh": {
+        "comment_template": r"(?:#\s?)(?:filename\s?:\s?)?\s?(.*\.sh)",
+        "action": "execute",
+        "extension": "sh",
+        "cmd": "sh"
+    },
+    "shell": {
+        "comment_template": r"(?:#\s?)(?:filename\s?:\s?)?\s?(.*\.sh)",
+        "action": "execute",
+        "extension": "sh",
+        "cmd": "sh"
+    },
+    "bash": {
+        "comment_template": r"(?:#\s?)(?:filename\s?:\s?)?\s?(.*\.sh)",
+        "action": "execute",
+        "extension": "sh",
+        "cmd": "sh"
+    },
+    "ps1": {
+        "comment_template": r"(?:#\s?)(?:filename\s?:\s?)?\s?(.*\.ps1)",
+        "action": "execute",
+        "extension": "ps1",
+        "cmd": get_powershell_command(),
+    },
+    "powershell": {
+        "comment_template": r"(?:#\s?)(?:filename\s?:\s?)?\s?(.*\.ps1)",
+        "action": "execute",
+        "extension": "ps1",
+        "cmd": get_powershell_command(),
+    },
+    "pwsh": {
+        "comment_template": r"(?:#\s?)(?:filename\s?:\s?)?\s?(.*\.ps1)",
+        "action": "execute",
+        "extension": "ps1",
+        "cmd": "pwsh"
+    }
+}
 
 
 # Constants for Python
