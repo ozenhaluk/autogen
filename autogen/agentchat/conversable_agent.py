@@ -1310,12 +1310,6 @@ class ConversableAgent(LLMAgent):
             cache=cache,
         )
         extracted_response = llm_client.extract_text_or_completion_object(response)[0]
-
-        # Pan's edit LM-Studio and GorillaFunctions v0 edit. This extracts functionCall Dict from content by parsing.
-        lm_studio = self.llm_config.get("lm_studio", True)
-        if lm_studio and self.llm_config and 'functions' in self.llm_config and self.llm_config['functions'] is not None:
-            extracted_response = llm_client.extract_function_calls_for_gorilla_on_lm_studio(response)
-        # Pan's edit        extracted_response = llm_client.extract_text_or_completion_object(response)[0]
         if extracted_response is None:
             warnings.warn("Extracted_response from {response} is None.", UserWarning)
             return None

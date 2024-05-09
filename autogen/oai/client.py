@@ -901,6 +901,8 @@ class OpenAIWrapper:
         Returns:
             A list of text, or a list of ChatCompletion objects if function_call/tool_calls are present.
         """
+        response = cls.extract_tool_call_for_mistral_on_litellm(response)
+        response = cls.extract_function_calls_for_gorilla_on_lm_studio(response)
         return response.message_retrieval_function(response)
     
     # Pan's edit ,a workaround using gorilla functions v0 with lm studio to extract function calls
@@ -923,4 +925,21 @@ class OpenAIWrapper:
                         print(f'Function Name: {function_name}')
                         print(f'Parameters: {parameters}')
                         choice.message.function_call = FunctionCall(name=function_name, arguments=json.dumps(parameters))
+        return response
+    
+    @classmethod
+    def extract_tool_call_for_mistral_on_litellm(self,response: ChatCompletion | Completion) -> List[str]:
+        choices = response.choices
+        for choice in choices:
+            if choice.message.tool_calls is not None:
+                for tool_call in choice.message.tool_calls:
+                    # Pan's studio local mistral tool fix
+                    if (tool_call.function.name == ''):
+                        try:
+                            tool_obj = json.loads(tool_call.function.arguments)
+                            tool_call.function.name = tool_obj["name"]
+                            # whichever is present in the tool_obj will be used
+                            tool_call.function.arguments = json.dumps(tool_obj["parameters"] if "parameters" in tool_obj else tool_obj["arguments"])
+                        except:
+                            pass
         return response

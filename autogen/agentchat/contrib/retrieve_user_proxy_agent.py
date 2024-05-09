@@ -267,11 +267,14 @@ class RetrieveUserProxyAgent(UserProxyAgent):
                 return False
         cb = extract_code(message)
         contain_code = False
-        for c in cb:
-            # todo: support more languages
-            if c[0] == "python":
-                contain_code = True
-                break
+        # Pan's studio edit to let all types of code be detected
+        if cb and cb[0]:
+            contain_code = True
+        # for c in cb:
+        #     # todo: support more languages
+        #     if c[0] == "python":
+        #         contain_code = True
+        #         break
         update_context_case1, update_context_case2 = self._check_update_context(message)
         return not (contain_code or update_context_case1 or update_context_case2)
 
